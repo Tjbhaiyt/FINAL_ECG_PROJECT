@@ -1,9 +1,25 @@
+import os
+import gdown
+
+MODEL_PATH = "ecg_model.joblib"
+FILE_ID = "1A-Cu1Sdyv106QbTEkZ1enGAsbtPgC8A_"
+
+# Download model if not present
+if not os.path.exists(MODEL_PATH):
+    print("Downloading model from Google Drive...")
+    url = f"https://drive.google.com/uc?id={FILE_ID}"
+    gdown.download(url, MODEL_PATH, quiet=False)
+
+# Now load your model normally
+import joblib
+model = joblib.load(MODEL_PATH)
 from flask import Flask, render_template, request, jsonify
 import joblib
 import numpy as np
 import pandas as pd
 import io
 from scipy.interpolate import interp1d
+
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5MB max upload
