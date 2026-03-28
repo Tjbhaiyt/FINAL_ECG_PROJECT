@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ECG Classifier — MIT-BIH</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #080d14;
+      --surface:  #0e1620;
+      --surface2: #141e2d;
+      --border:   #1e2f45;
+      --accent:   #00d4ff;
+      --accent2:  #0090b8;
+      --text:     #e2eaf5;
+      --muted:    #5a7a9a;
+      --success:  #22c55e;
+      --warn:     #f59e0b;
+      --error:    #ef4444;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      min-height: 100vh;
+    }
+
+    /* ── Animated ECG background ── */
+    .bg-ecg {
+      position: fixed; inset: 0;
+      pointer-events: none; z-index: 0; overflow: hidden;
+    }
+    .bg-ecg svg { width: 100%; height: 100%; opacity: 0.035; }
+    .ecg-path {
+      fill: none; stroke: var(--accent); stroke-width: 1.5;
+      stroke-dasharray: 2400; stroke-dashoffset: 2400;
+      animation: draw-ecg 7s linear infinite;
+    }
+    @keyframes draw-ecg {
+      0%   { stroke-dashoffset:  2400; }
+      100% { stroke-dashoffset: -2400; }
+    }
+
+    .wrapper {
+      position: relative; z-index: 1;
+      max-width: 920px; margin: 0 auto;
+      padding: 40px 24px 100px;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex; align-items: flex-start;
+      gap: 18px; margin-bottom: 44px;
+    }
+    .pulse-icon {
+      flex-shrink: 0; width: 52px; height: 52px;
+      background: linear-gradient(135deg, var(--accent2), var(--accent));
+      border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px;
+      box-shadow: 0 0 32px rgba(0,212,255,0.28);
+    }
+    .header-text h1 {
+      font-family: 'Syne', sans-serif; font-size: 26px;
+      font-weight: 800; color: #fff; letter-spacing: -0.5px;
+    }
+    .header-text p { color: var(--muted); font-size: 11px; margin-top: 4px; letter-spacing: 0.5px; }
+    .badges { display: flex; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
+    .badge {
+      background: rgba(0,212,255,0.1);
+      border: 1px solid rgba(0,212,255,0.22);
+      color: var(--accent); font-size: 10px;
+      padding: 2px 9px; border-radius: 20px;
+      letter-spacing: 0.8px; text-transform: uppercase;
+    }
+    .badge.green { background: rgba(34,197,94,0.1); border-color: rgba(34,197,94,0.25); color: var(--success); }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex; gap: 4px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 4px;
+      margin-bottom: 24px; width: fit-content;
+    }
+    .tab-btn {
+      background: none; border: none;
+      color: var(--muted); font-family: 'DM Mono', monospace;
+      font-size: 12px; padding: 9px 20px;
+      border-radius: 9px; cursor: pointer; transition: all 0.2s;
+    }
+    .tab-btn.active { background: var(--accent); color: #000; font-weight: 500; }
+    .tab-btn:not(.active):hover { color: var(--text); background: rgba(255,255,255,0.05); }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px; padding: 26px;
+      margin-bottom: 18px;
+    }
+    .card-title {
+      font-family: 'Syne', sans-serif; font-size: 11px;
+      font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 1.5px;
+      margin-bottom: 14px;
+    }
+
+    /* ── Tab panels ── */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Textarea ── */
+    textarea {
+      width: 100%;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text);
+      font-family: 'DM Mono', monospace; font-size: 11px;
+      padding: 14px; resize: vertical; min-height: 130px;
+      outline: none; transition: border-color 0.2s; line-height: 1.7;
+    }
+    textarea:focus { border-color: var(--accent2); }
+    textarea::placeholder { color: var(--muted); }
+
+    /* ── Live counter row ── */
+    .counter-row {
+      display: flex; justify-content: space-between;
+      align-items: center; margin-top: 8px;
+    }
+    .feature-counter { font-size: 11px; color: var(--muted); transition: color 0.2s; }
+    .feature-counter.ok    { color: var(--success); }
+    .feature-counter.warn  { color: var(--warn); }
+    .feature-counter.info  { color: var(--accent); }
+    .interp-note { font-size: 10px; color: var(--muted); font-style: italic; }
+
+    /* ── CSV dropzone ── */
+    .dropzone {
+      border: 2px dashed var(--border); border-radius: 12px;
+      padding: 38px 24px; text-align: center; cursor: pointer;
+      transition: all 0.2s; background: var(--surface2); position: relative;
+    }
+    .dropzone:hover, .dropzone.drag-over {
+      border-color: var(--accent2); background: rgba(0,144,184,0.06);
+    }
+    .dropzone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0;
+      cursor: pointer; width: 100%; height: 100%;
+    }
+    .dropzone-icon { font-size: 30px; margin-bottom: 10px; }
+    .dropzone-label { font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 600; color: var(--text); }
+    .dropzone-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .file-info-row {
+      display: none; align-items: center; gap: 10px;
+      background: rgba(0,212,255,0.07);
+      border: 1px solid rgba(0,212,255,0.2);
+      border-radius: 8px; padding: 10px 14px;
+      margin-top: 12px; font-size: 12px;
+    }
+    .file-info-row.show { display: flex; }
+    .file-info-row span { color: var(--accent); }
+
+    /* ── Waveform preview canvas ── */
+    .waveform-wrap {
+      margin-top: 16px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px;
+      display: none;
+    }
+    .waveform-wrap.show { display: block; }
+    .waveform-label { font-size: 10px; color: var(--muted); margin-bottom: 6px; letter-spacing: 0.8px; }
+    canvas#waveform { width: 100%; height: 70px; display: block; }
+
+    /* ── Button ── */
+    .btn-predict {
+      width: 100%; margin-top: 16px;
+      background: linear-gradient(135deg, var(--accent2), var(--accent));
+      color: #000; border: none; border-radius: 10px;
+      font-family: 'Syne', sans-serif; font-size: 14px;
+      font-weight: 700; padding: 14px; cursor: pointer;
+      transition: all 0.2s; letter-spacing: 0.4px;
+    }
+    .btn-predict:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,212,255,0.22); }
+    .btn-predict:active { transform: none; }
+    .btn-predict:disabled { opacity: 0.45; cursor: not-allowed; transform: none; filter: none; }
+    .btn-predict .spinner {
+      display: none; width: 16px; height: 16px;
+      border: 2px solid rgba(0,0,0,0.25); border-top-color: #000;
+      border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto;
+    }
+    .btn-predict.loading .spinner { display: block; }
+    .btn-predict.loading .btn-text { display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Alerts ── */
+    .alert {
+      border-radius: 10px; padding: 11px 15px;
+      font-size: 11.5px; margin-bottom: 12px;
+      display: flex; align-items: flex-start;
+      gap: 10px; line-height: 1.55;
+    }
+    .alert-icon { flex-shrink: 0; font-size: 14px; }
+    .alert.warning { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.28); color: #fbbf24; }
+    .alert.error   { background: rgba(239,68,68,0.1);  border: 1px solid rgba(239,68,68,0.28);  color: #f87171; }
+    .alert.info    { background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.2);   color: var(--accent); }
+    .alert.success { background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.25);  color: var(--success); }
+
+    /* ── Result ── */
+    #result-section { display: none; }
+    #result-section.show { display: block; animation: fadeUp 0.38s ease; }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .result-top {
+      display: flex; align-items: center;
+      gap: 16px; margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .result-badge {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 11px 20px; border-radius: 50px;
+      font-family: 'Syne', sans-serif; font-size: 15px;
+      font-weight: 700; border: 2px solid;
+    }
+    .result-pulse {
+      width: 9px; height: 9px; border-radius: 50%;
+      animation: pulse-dot 1.4s infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50%       { transform: scale(1.45); opacity: 0.55; }
+    }
+    .result-info-text {
+      font-size: 12px; color: var(--muted);
+      line-height: 1.5; flex: 1; min-width: 180px;
+    }
+
+    /* ── Stats row ── */
+    .stats-row {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 10px; margin-bottom: 20px;
+    }
+    .stat-box {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px;
+    }
+    .stat-label { font-size: 10px; color: var(--muted); letter-spacing: 0.8px; text-transform: uppercase; }
+    .stat-value { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; margin-top: 4px; }
+
+    /* ── Confidence bars ── */
+    .conf-list { display: flex; flex-direction: column; gap: 11px; }
+    .conf-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    .conf-label  { font-size: 12px; color: var(--text); }
+    .conf-pct    { font-size: 12px; font-weight: 500; }
+    .conf-bar-bg { height: 6px; background: var(--surface2); border-radius: 10px; overflow: hidden; }
+    .conf-bar-fill {
+      height: 100%; border-radius: 10px;
+      transition: width 0.85s cubic-bezier(0.23, 1, 0.32, 1);
+      width: 0%;
+    }
+
+    hr.divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+    /* ── Chips ── */
+    .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .chip {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 20px; font-size: 11px;
+      padding: 4px 12px; color: var(--muted);
+    }
+    .chip span { color: var(--text); }
+  </style>
+</head>
+<body>
+
+<div class="bg-ecg">
+  <svg viewBox="0 0 1440 200" preserveAspectRatio="none">
+    <path class="ecg-path" d="M0,100 L80,100 L100,100 L110,40 L120,160 L130,100 L140,100
+      L220,100 L240,100 L250,40 L260,160 L270,100 L280,100
+      L360,100 L380,100 L390,40 L400,160 L410,100 L420,100
+      L500,100 L520,100 L530,40 L540,160 L550,100 L560,100
+      L640,100 L660,100 L670,40 L680,160 L690,100 L700,100
+      L780,100 L800,100 L810,40 L820,160 L830,100 L840,100
+      L920,100 L940,100 L950,40 L960,160 L970,100 L980,100
+      L1060,100 L1080,100 L1090,40 L1100,160 L1110,100 L1120,100
+      L1200,100 L1220,100 L1230,40 L1240,160 L1250,100 L1440,100"/>
+  </svg>
+</div>
+
+<div class="wrapper">
+
+  <!-- Header -->
+  <header>
+    <div class="pulse-icon">🫀</div>
+    <div class="header-text">
+      <h1>ECG Signal Classifier</h1>
+      <p>MIT-BIH ARRHYTHMIA DATASET · RANDOM FOREST · 98% ACCURACY</p>
+      <div class="badges">
+        <span class="badge">CSE26B02 · SVCE</span>
+        <span class="badge green">Accepts any input length</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('manual', this)">✏️ Manual Input</button>
+    <button class="tab-btn"        onclick="switchTab('csv', this)">📄 Upload CSV</button>
+  </div>
+
+  <!-- ── Manual Input Panel ── -->
+  <div class="tab-panel active" id="panel-manual">
+    <div class="card">
+      <div class="card-title">Paste ECG Feature Values</div>
+      <textarea id="manual-input"
+        placeholder="Paste any number of comma-separated values here.&#10;Example: 0.9, 0.64, 0.31, 0.10, 0.11 ...&#10;&#10;Note: Use 187 values for better prediction"
+        oninput="onManualInput(this)"></textarea>
+
+      <div class="counter-row">
+        <div class="feature-counter" id="feature-counter">— values detected</div>
+        <div class="interp-note" id="interp-note"></div>
+      </div>
+
+      <!-- Live waveform preview -->
+      <div class="waveform-wrap" id="waveform-wrap">
+        <div class="waveform-label">SIGNAL PREVIEW</div>
+        <canvas id="waveform"></canvas>
+      </div>
+
+      <button class="btn-predict" id="btn-manual" onclick="submitManual()">
+        <div class="spinner"></div>
+        <span class="btn-text">Classify Heartbeat</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── CSV Upload Panel ── -->
+  <div class="tab-panel" id="panel-csv">
+    <div class="card">
+      <div class="card-title">Upload CSV File</div>
+      <div class="dropzone" id="dropzone">
+        <input type="file" accept=".csv" id="csv-file-input" onchange="onFileChosen(this)"/>
+        <div class="dropzone-icon">📂</div>
+        <div class="dropzone-label">Drop your CSV here or click to browse</div>
+        <div class="dropzone-sub">Supports vertical (one value/line) and horizontal formats · Any value count accepted</div>
+      </div>
+      <div class="file-info-row" id="file-info-row">
+        <span>📄</span>
+        <span id="file-name-display">—</span>
+      </div>
+      <button class="btn-predict" id="btn-csv" onclick="submitCSV()">
+        <div class="spinner"></div>
+        <span class="btn-text">Classify from CSV</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Result Section ── -->
+  <div id="result-section">
+    <div id="alert-area"></div>
+
+    <div class="card" id="result-card" style="display:none;">
+      <div class="card-title">Classification Result</div>
+
+      <div class="result-top">
+        <div id="result-badge-wrap"></div>
+        <div class="result-info-text" id="result-info-text"></div>
+      </div>
+
+      <!-- Stats row -->
+      <div class="stats-row" id="stats-row"></div>
+
+      <div class="card-title">Confidence Scores (All Classes)</div>
+      <div class="conf-list" id="conf-list"></div>
+
+      <hr class="divider"/>
+      <div class="chips" id="chips"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ── Tab switching ──
+  function switchTab(tab, btn) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + tab).classList.add('active');
+    btn.classList.add('active');
+    clearResults();
+  }
+
+  // ── Parse textarea values ──
+  function parseValues(text) {
+    return text.replace(/\n/g, ',').split(',')
+      .map(v => v.trim()).filter(v => v !== '')
+      .map(v => parseFloat(v)).filter(v => !isNaN(v));
+  }
+
+  // ── Live waveform on canvas ──
+  function drawWaveform(values) {
+    const wrap = document.getElementById('waveform-wrap');
+    const canvas = document.getElementById('waveform');
+    if (values.length < 2) { wrap.classList.remove('show'); return; }
+    wrap.classList.add('show');
+
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.offsetWidth || 800;
+    const H = 70;
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const mn = Math.min(...values), mx = Math.max(...values);
+    const range = mx - mn || 1;
+    const pad = 6;
+
+    ctx.beginPath();
+    ctx.strokeStyle = '#00d4ff';
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = '#00d4ff';
+    ctx.shadowBlur = 4;
+
+    values.forEach((v, i) => {
+      const x = (i / (values.length - 1)) * (W - 2 * pad) + pad;
+      const y = H - pad - ((v - mn) / range) * (H - 2 * pad);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  // ── Manual input handler ──
+  function onManualInput(ta) {
+    const vals = parseValues(ta.value);
+    const n = vals.length;
+    const counter = document.getElementById('feature-counter');
+    const note    = document.getElementById('interp-note');
+
+    if (n === 0) {
+      counter.textContent = '— values detected';
+      counter.className = 'feature-counter';
+      note.textContent = '';
+      document.getElementById('waveform-wrap').classList.remove('show');
+      return;
+    }
+
+    if (n === 187) {
+      counter.textContent = `✔ ${n} values — perfect match`;
+      counter.className = 'feature-counter ok';
+      note.textContent = 'No interpolation needed';
+    } else if (n === 188) {
+      counter.textContent = `${n} values — label will be stripped`;
+      counter.className = 'feature-counter warn';
+      note.textContent = 'Last value removed automatically';
+    } else if (n < 187) {
+      counter.textContent = `${n} values — will interpolate → 187`;
+      counter.className = 'feature-counter warn';
+      note.textContent = `Signal stretched from ${n} → 187 pts`;
+    } else {
+      counter.textContent = `${n} values — will interpolate → 187`;
+      counter.className = 'feature-counter info';
+      note.textContent = `Signal compressed from ${n} → 187 pts`;
+    }
+
+    drawWaveform(vals);
+  }
+
+  // ── CSV file chosen ──
+  function onFileChosen(input) {
+    const f = input.files[0];
+    if (!f) return;
+    const row = document.getElementById('file-info-row');
+    document.getElementById('file-name-display').textContent =
+      `${f.name}  (${(f.size / 1024).toFixed(1)} KB)`;
+    row.classList.add('show');
+  }
+
+  // ── Drag events ──
+  const dz = document.getElementById('dropzone');
+  dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop',      e => { e.preventDefault(); dz.classList.remove('drag-over'); });
+
+  // ── Clear results ──
+  function clearResults() {
+    document.getElementById('result-section').classList.remove('show');
+  }
+
+  // ── Submit: manual ──
+  async function submitManual() {
+    const val = document.getElementById('manual-input').value.trim();
+    if (!val) { showAlertOnly('error', '⚠', 'Please paste ECG values first.'); return; }
+    const btn = document.getElementById('btn-manual');
+    setLoading(btn, true);
+    const fd = new FormData(); fd.append('ecg_data', val);
+    try {
+      const res  = await fetch('/predict/manual', { method: 'POST', body: fd });
+      const data = await res.json();
+      renderResult(data);
+    } catch(e) {
+      showAlertOnly('error', '✖', 'Network error: ' + e.message);
+    } finally { setLoading(btn, false); }
+  }
+
+  // ── Submit: CSV ──
+  async function submitCSV() {
+    const fi = document.getElementById('csv-file-input');
+    if (!fi.files.length) { showAlertOnly('error', '⚠', 'Please select a CSV file first.'); return; }
+    const btn = document.getElementById('btn-csv');
+    setLoading(btn, true);
+    const fd = new FormData(); fd.append('csv_file', fi.files[0]);
+    try {
+      const res  = await fetch('/predict/csv', { method: 'POST', body: fd });
+      const data = await res.json();
+      renderResult(data);
+    } catch(e) {
+      showAlertOnly('error', '✖', 'Network error: ' + e.message);
+    } finally { setLoading(btn, false); }
+  }
+
+  function setLoading(btn, s) {
+    btn.disabled = s;
+    btn.classList.toggle('loading', s);
+  }
+
+  // ── Render result ──
+  function renderResult(data) {
+    const alertArea = document.getElementById('alert-area');
+    alertArea.innerHTML = '';
+
+    if (data.error) {
+      alertArea.innerHTML = alertHTML('error', '✖', data.error);
+      document.getElementById('result-card').style.display = 'none';
+      document.getElementById('result-section').classList.add('show');
+      return;
+    }
+
+    // Alerts: warnings
+    if (data.warnings && data.warnings.length) {
+      data.warnings.forEach(w => {
+        alertArea.innerHTML += alertHTML('warning', '⚠', w);
+      });
+    }
+    if (data.csv_info) {
+      alertArea.innerHTML += alertHTML('info', 'ℹ', data.csv_info);
+    }
+
+    document.getElementById('result-card').style.display = 'block';
+
+    // Result badge
+    document.getElementById('result-badge-wrap').innerHTML = `
+      <div class="result-badge"
+           style="background:${data.color}18; border-color:${data.color}; color:${data.color};">
+        <div class="result-pulse" style="background:${data.color};"></div>
+        ${data.prediction}
+      </div>`;
+
+    // Info text
+    document.getElementById('result-info-text').textContent = data.info || '';
+
+    // Stats row
+    const inputCount = data.feature_count;
+    const resampledTo = data.resampled_to || 187;
+    const interpNote = inputCount === resampledTo
+      ? 'None (exact)'
+      : `${inputCount} → ${resampledTo} pts`;
+
+    document.getElementById('stats-row').innerHTML = `
+      <div class="stat-box">
+        <div class="stat-label">Values Provided</div>
+        <div class="stat-value" style="color:var(--accent)">${inputCount}</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Model Input</div>
+        <div class="stat-value" style="color:var(--text)">${resampledTo}</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Interpolation</div>
+        <div class="stat-value" style="color:var(--warn); font-size:13px; margin-top:6px;">${interpNote}</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Top Confidence</div>
+        <div class="stat-value" style="color:${data.color}">
+          ${data.confidences[data.prediction].percent}%
+        </div>
+      </div>`;
+
+    // Confidence bars — sorted descending
+    const confList = document.getElementById('conf-list');
+    confList.innerHTML = '';
+    const sorted = Object.entries(data.confidences)
+      .sort((a, b) => b[1].value - a[1].value);
+
+    sorted.forEach(([label, info]) => {
+      const isTop = label === data.prediction;
+      confList.innerHTML += `
+        <div class="conf-item">
+          <div class="conf-header">
+            <span class="conf-label">${isTop ? '▶ ' : ''}${label}</span>
+            <span class="conf-pct" style="color:${info.color}">${info.percent}%</span>
+          </div>
+          <div class="conf-bar-bg">
+            <div class="conf-bar-fill"
+                 style="background:${info.color}; ${isTop ? 'box-shadow:0 0 8px ' + info.color + '66;' : ''}"
+                 data-width="${info.value}">
+            </div>
+          </div>
+        </div>`;
+    });
+
+    // Chips
+    document.getElementById('chips').innerHTML = `
+      <div class="chip">Model: <span>Random Forest</span></div>
+      <div class="chip">Dataset: <span>MIT-BIH</span></div>
+      <div class="chip">Model Accuracy: <span>~98%</span></div>
+      <div class="chip">Normalization: <span>Min-Max [0,1]</span></div>
+      <div class="chip">Interpolation: <span>Linear</span></div>`;
+
+    document.getElementById('result-section').classList.add('show');
+
+    // Animate bars
+    setTimeout(() => {
+      document.querySelectorAll('.conf-bar-fill').forEach(b => {
+        b.style.width = b.dataset.width + '%';
+      });
+    }, 80);
+  }
+
+  function alertHTML(type, icon, msg) {
+    return `<div class="alert ${type}">
+              <span class="alert-icon">${icon}</span>
+              <span>${msg}</span>
+            </div>`;
+  }
+
+  function showAlertOnly(type, icon, msg) {
+    document.getElementById('alert-area').innerHTML = alertHTML(type, icon, msg);
+    document.getElementById('result-card').style.display = 'none';
+    document.getElementById('result-section').classList.add('show');
+  }
+</script>
+</body>
+</html>
