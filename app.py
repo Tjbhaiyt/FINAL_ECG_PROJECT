@@ -225,3 +225,11 @@ def predict_csv():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
+
+    """ app done. To run:
+    1. Ensure jashu.ipynb has been run to create 'ecg_model.joblib'.
+    2. Install dependencies: pip install flask joblib numpy pandas scipy gdown
+    3. Run this script: python app.py
+    4. Open http://"""
+    
